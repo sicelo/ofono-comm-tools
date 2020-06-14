@@ -7,11 +7,17 @@ import subprocess
 #import hildon
 #import osso
 
-def getModem():
+global net_status
+global net_params
+
+# net_status = False
+net_params = {}
+
+def get_modem():
     # We don't expect to have more than one modem
     return sysbus.get('org.ofono','/').GetModems()[0][0]
 
-def inMsg(s, a):
+def in_msg(s, a):
     # s is a str that contains the message text
     # a is a dict that contains time & sender
     #
@@ -23,7 +29,7 @@ def inMsg(s, a):
     subprocess.call(['/usr/bin/aplay','/usr/share/sounds/ui-new_email.wav'])
 
 
-def inFlashMsg(s, a):
+def in_flash_msg(s, a):
     # s is a str that contains the message text
     # a is a dict that contains time & sender
     #
@@ -33,8 +39,11 @@ def inFlashMsg(s, a):
     # print(ret)
     subprocess.call(['/usr/bin/aplay','/usr/share/sounds/ui-new_email.wav'])
 
-def inCall(o, a):
-    # o is ..
+def ussd_note(s):
+    ret = notice.SystemNoteDialog(s, 0, '')
+
+def in_call(o, a):
+    # o is the ofono path for the call
     #print(a.items())
     #hildon.hildon_play_system_sound('/usr/share/sounds/ui-wake_up_tune.wav')
     #
@@ -45,32 +54,88 @@ def inCall(o, a):
     subprocess.call(
             ['/usr/bin/aplay','/usr/share/sounds/ui-wake_up_tune.wav']\
             )
+    print("Call from ", a['LineIdentification'])
 
-def endedCall(o):
+def ended_call(o):
     #print("Call ended")
     #hildon.hildon_play_system_sound('/usr/share/sounds/ui-default_beep.wav')
     subprocess.call(
             ['/usr/bin/aplay','/usr/share/sounds/ui-default_beep.wav']\
             )
 
+def set_internet(s, v):
+    global net_status
+    global net_params
+
+    if (type(v) is dict) and (len(v) > 0):
+        net_params = v
+        
+        ipaddr = net_params.get('Address')
+        netmask = net_params.get('Netmask')
+        if "Gateway" in net_params.keys():
+            gw = net_params.get('Gateway')
+        else:
+            gw = ''
+        method = net_params.get('Method')
+        iface = net_params.get('Interface')
+        dns = net_params.get('DomainNameServers')
+
+        # Check if there are other properties
+        # If method = dhcp, request dhcp addresses
+
+        try:
+        #if 1:
+            print("Setting IP address ", str(ipaddr))
+            subprocess.call(["/usr/bin/sudo","/bin/ip","address","add",str(ipaddr) + "/" + str(netmask), "dev", str(iface)])
+            if len(gw) == 0:
+                print("Setting default route, unnamed gw")
+                subprocess.call(["/usr/bin/sudo","/bin/ip","route","add","default","dev",str(iface)])
+            else:
+                # Lo and behold. The gateway doesn't seem to work; using iface
+                print("Setting default route, with gw ", str(gw))
+                subprocess.call(["/usr/bin/sudo","/bin/ip","route","add","default","dev",str(iface)])
+                # subprocess.call(["/usr/bin/sudo","/bin/ip","route","add","default","via",str(gw),"dev",str(iface)])
+            print("Setting nameservers")
+            with open("/home/user/dns", "w") as f:
+                for ns in range(len(dns)):
+                    f.write("nameserver " + dns[ns] + "\n")
+            subprocess.call(["/usr/bin/sudo","/bin/mv","/home/user/dns", "/etc/resolv.conf"])
+        except:
+            print("Parameters were already set??")
+
+    elif v == False:
+        print("Internet brought down")
+        try:
+            ret = subprocess.call(["/usr/bin/sudo","/bin/ip","address","del", str(net_params.get("Address"))+"/"+str(net_params.get("Netmask")), "dev", str(net_params.get("Interface"))])
+        except:
+            print("Could not manually flush old ip")
+
 sysbus = SystemBus()
 sessbus = SessionBus()
 
 notice = sessbus.get('org.freedesktop.Notifications','/org/freedesktop/Notifications')
 
-
-
 if __name__ == "__main__":
-    modem = getModem()
+    modem = get_modem()
     ofonoModem = sysbus.get('org.ofono', modem)
 
     # Handle Incoming SMS & Flash/Instant Messages
-    ofonoModem.IncomingMessage.connect(inMsg)
-    ofonoModem.ImmediateMessage.connect(inFlashMsg)
+    ofonoModem.IncomingMessage.connect(in_msg)
+    ofonoModem.ImmediateMessage.connect(in_flash_msg)
 
     # Handle Phone Calls
-    ofonoModem.CallAdded.connect(inCall)
-    ofonoModem.CallRemoved.connect(endedCall)
+    ofonoModem.CallAdded.connect(in_call)
+    ofonoModem.CallRemoved.connect(ended_call)
+
+    # Handle USSD Notifications
+    # ofonoModem.NotificationReceived(ussd_note)
+
+    # Set Internet Settings; assume 1 context 
+    if len(ofonoModem.GetContexts()[0][0]) > 0:
+        internet_ctx = ofonoModem.GetContexts()[0][0]
+        ofono_ctx = sysbus.get('org.ofono', internet_ctx)
+        ofono_ctx.PropertyChanged.connect(set_internet)
 
     loop = GLib.MainLoop()
     loop.run()
+

@@ -108,7 +108,7 @@ if __name__ == "__main__":
 
     # Handle Incoming SMS & Flash/Instant Messages
     ofonoModem.IncomingMessage.connect(incoming_sms)
-    ofonoModem.ImmediateMessage.connect(incoming_flash_msg_flash_msg)
+    ofonoModem.ImmediateMessage.connect(incoming_flash_msg)
 
     # Handle Phone Calls
     ofonoModem.CallAdded.connect(incoming_call)

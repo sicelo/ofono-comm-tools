@@ -24,6 +24,7 @@ def incoming_sms(s, a):
     #
     notice.Notify('', 0, 'general_sms', a['Sender'], s, [], {}, 0)
     subprocess.call(['/usr/bin/aplay', new_sms_sound])
+    print(a['Sender'], ":", s)
 
 
 def incoming_flash_msg(s, a):

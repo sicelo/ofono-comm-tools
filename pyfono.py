@@ -5,65 +5,55 @@ from pydbus import SystemBus, SessionBus
 from gi.repository import GLib
 import subprocess
 #import hildon
-#import osso
 
 global net_status
 global net_params
 
-# net_status = False
+new_sms_sound = '/usr/share/sounds/ui-new_email.wav'
+incoming_call_sound = '/usr/share/sounds/ui-wake_up_tune.wav'
+
 net_params = {}
 
 def get_modem():
     # We don't expect to have more than one modem
     return sysbus.get('org.ofono','/').GetModems()[0][0]
 
-def in_msg(s, a):
+def incoming_sms(s, a):
     # s is a str that contains the message text
     # a is a dict that contains time & sender
     #
-    # would be nice to figure out how to use 'actions' for launching UI to show the message
-    ret = notice.Notify('', 0, 'general_sms', a['Sender'], s, \
-            ['default','some-action'], {}, 0\
-            )
-    # print(ret)
-    subprocess.call(['/usr/bin/aplay','/usr/share/sounds/ui-new_email.wav'])
+    notice.Notify('', 0, 'general_sms', a['Sender'], s, [], {}, 0)
+    subprocess.call(['/usr/bin/aplay', new_sms_sound])
 
 
-def in_flash_msg(s, a):
+def incoming_flash_msg(s, a):
     # s is a str that contains the message text
     # a is a dict that contains time & sender
     #
-    # NOTE: I haven't tested this!
-    # would be nice to figure out how to use 'actions' for launching UI to show the message
-    ret = notice.SystemNoteDialog(s, 0, '')
-    # print(ret)
-    subprocess.call(['/usr/bin/aplay','/usr/share/sounds/ui-new_email.wav'])
+    # NOTE: I haven't tested flash messages!
+    # using aplay since hildon module, which provides
+    # hildon_play_system_sound, clashes with gi.repository
+    notice.SystemNoteDialog(s, 0, '')
+    subprocess.call(['/usr/bin/aplay', new_sms_sound])
 
 def ussd_note(s):
-    ret = notice.SystemNoteDialog(s, 0, '')
+    notice.SystemNoteDialog(s, 0, '')
 
-def in_call(o, a):
+def incoming_call(o, a):
     # o is the ofono path for the call
-    #print(a.items())
-    #hildon.hildon_play_system_sound('/usr/share/sounds/ui-wake_up_tune.wav')
+    # a contains the call details
     #
-    # using aplay since hildon module seems to clash with gi.repository
-    ret = notice.Notify('', 0, 'general_call', 'Incoming Call', \
-            a['LineIdentification'], ['default','some-action'], {}, 0\
-            )
+    notice.Notify('', 0, 'general_call', 'Incoming Call', \
+            a['LineIdentification'], [], {}, 0)
     subprocess.call(
-            ['/usr/bin/aplay','/usr/share/sounds/ui-wake_up_tune.wav']\
+            ['/usr/bin/aplay', incoming_call_sound]\
             )
     print("Call from ", a['LineIdentification'])
 
 def ended_call(o):
-    #print("Call ended")
-    #hildon.hildon_play_system_sound('/usr/share/sounds/ui-default_beep.wav')
-    subprocess.call(
-            ['/usr/bin/aplay','/usr/share/sounds/ui-default_beep.wav']\
-            )
+    pass
 
-def set_internet(s, v):
+def setup_internet(s, v):
     global net_status
     global net_params
 
@@ -81,25 +71,22 @@ def set_internet(s, v):
         dns = net_params.get('DomainNameServers')
 
         # Check if there are other properties
-        # If method = dhcp, request dhcp addresses
+        # If method = dhcp, request dhcp parameters
 
         try:
-        #if 1:
-            print("Setting IP address ", str(ipaddr))
             subprocess.call(["/usr/bin/sudo","/bin/ip","address","add",str(ipaddr) + "/" + str(netmask), "dev", str(iface)])
             if len(gw) == 0:
-                print("Setting default route, unnamed gw")
                 subprocess.call(["/usr/bin/sudo","/bin/ip","route","add","default","dev",str(iface)])
             else:
-                # Lo and behold. The gateway doesn't seem to work; using iface
-                print("Setting default route, with gw ", str(gw))
+                # The gateway doesn't seem to work; using iface
                 subprocess.call(["/usr/bin/sudo","/bin/ip","route","add","default","dev",str(iface)])
                 # subprocess.call(["/usr/bin/sudo","/bin/ip","route","add","default","via",str(gw),"dev",str(iface)])
-            print("Setting nameservers")
-            with open("/home/user/dns", "w") as f:
+            with open("/home/user/.dns", "w") as f:
                 for ns in range(len(dns)):
                     f.write("nameserver " + dns[ns] + "\n")
-            subprocess.call(["/usr/bin/sudo","/bin/mv","/home/user/dns", "/etc/resolv.conf"])
+            subprocess.call(["/usr/bin/sudo","/bin/mv","/home/user/.dns", "/etc/resolv.conf"])
+            
+            print("Internet up")
         except:
             print("Parameters were already set??")
 
@@ -120,11 +107,11 @@ if __name__ == "__main__":
     ofonoModem = sysbus.get('org.ofono', modem)
 
     # Handle Incoming SMS & Flash/Instant Messages
-    ofonoModem.IncomingMessage.connect(in_msg)
-    ofonoModem.ImmediateMessage.connect(in_flash_msg)
+    ofonoModem.IncomingMessage.connect(incoming_sms)
+    ofonoModem.ImmediateMessage.connect(incoming_flash_msg_flash_msg)
 
     # Handle Phone Calls
-    ofonoModem.CallAdded.connect(in_call)
+    ofonoModem.CallAdded.connect(incoming_call)
     ofonoModem.CallRemoved.connect(ended_call)
 
     # Handle USSD Notifications
@@ -134,7 +121,7 @@ if __name__ == "__main__":
     if len(ofonoModem.GetContexts()[0][0]) > 0:
         internet_ctx = ofonoModem.GetContexts()[0][0]
         ofono_ctx = sysbus.get('org.ofono', internet_ctx)
-        ofono_ctx.PropertyChanged.connect(set_internet)
+        ofono_ctx.PropertyChanged.connect(setup_internet)
 
     loop = GLib.MainLoop()
     loop.run()

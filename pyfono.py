@@ -3,19 +3,41 @@
 from __future__ import print_function
 import dbus
 import hildon
+import gtk
 import dbus.mainloop.glib
 import gobject
 import subprocess
+import os
 
 new_sms_sound = '/usr/share/sounds/ui-new_email.wav'
 incoming_call_sound = '/usr/share/sounds/ui-wake_up_tune.wav'
 
+alsa_temp = '/tmp/alsa.settings'
+# using sound card settings for droid 4 provided by unicsy_demo application
+# untested on N900 until libcmtspeech is working
+devnull = open(os.devnull, 'w')
+device = subprocess.call(['/bin/grep','RX-51','/proc/cpuinfo'], stdout=devnull, stderr=devnull)
+if device == 1: # Assume Motorola Droid 4
+    alsa_call = '/usr/share/unicsy/audio/motorola-xt894/alsa.playback.call.loud'
+else:   # Nokia N900
+    alsa_call = ''
+
 net_params = {}
+
+def call_note(call_id):
+    window = hildon.StackableWindow()
+    note = hildon.hildon_note_new_confirmation(window, call_id)
+    note.set_button_texts("Answer", "Reject") 
+    note.add_button("Send SMS", 1)
+    note.add_button("Ignore", 2)
+    response = gtk.Dialog.run(note)
+    note.destroy()
+    window.destroy()
+    return response
 
 def get_modem():
     # We don't expect to have more than one modem
-    dbus_obj = system.get_object('org.ofono','/')
-    Manager = dbus.Interface(dbus_obj, 'org.ofono.Manager')
+    Manager = dbus.Interface(system.get_object('org.ofono','/'), 'org.ofono.Manager')
     return Manager.GetModems()[0][0]
 
 def incoming_sms(s, a):
@@ -43,13 +65,39 @@ def incoming_call(o, a):
     # o is the ofono path for the call
     # a contains the call details
     #
-    notifications_interface.Notify('', 0, 'general_call', 'Incoming Call', \
-            a['LineIdentification'], [], {}, 0)
+    #notifications_interface.Notify('', 0, 'general_call', 'Incoming Call', \
+    #        a['LineIdentification'], [], {}, 0)
+    VoiceCall = dbus.Interface(system.get_object('org.ofono', o), 'org.ofono.VoiceCall')
     hildon.hildon_play_system_sound(incoming_call_sound)
-    print("Call from ", a.get('LineIdentification'))
+    user_choice = call_note(str(a.get('LineIdentification')))
+    if user_choice == 1:
+        # 1. See what ofono option exists, or send a Hangup
+        VoiceCall.Hangup()
+        # 2. Open SMS application
+    elif user_choice == 2:
+        pass
+        # 1.Silence the ringtone
+    elif user_choice == -5:
+        pass
+        # 1. Save sound card state (somewhere global)
+        subprocess.call(['/usr/sbin/alsactl','--file', alsa_temp, 'store'])
+        # 2. Load call sound settings
+        if alsa_call != '':
+            subprocess.call(['/usr/sbin/alsactl','--file', alsa_call, 'restore'])
+        # 3. Answer call via ofono
+            VoiceCall.Answer()
+        else:
+            print("We are unable to setup this device's sound card for a call")
+    elif user_choice == -6:
+        VoiceCall.Hangup()
 
 def ended_call(o):
-    pass
+    # Restore original sound card state
+    try:
+        subprocess.call(['/usr/sbin/alsactl','--file', alsa_temp, 'restore'])
+    except:
+        print("Could not restore sound settings. \
+                May or may not be an error. Check your settings")
 
 def setup_internet(s, v):
     global net_params

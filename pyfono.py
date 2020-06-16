@@ -71,20 +71,15 @@ def incoming_call(o, a):
     hildon.hildon_play_system_sound(incoming_call_sound)
     user_choice = call_note(str(a.get('LineIdentification')))
     if user_choice == 1:
-        # 1. See what ofono option exists, or send a Hangup
         VoiceCall.Hangup()
         # 2. Open SMS application
     elif user_choice == 2:
         pass
         # 1.Silence the ringtone
     elif user_choice == -5:
-        pass
-        # 1. Save sound card state (somewhere global)
-        subprocess.call(['/usr/sbin/alsactl','--file', alsa_temp, 'store'])
-        # 2. Load call sound settings
+        subprocess.call(['/usr/bin/sudo','/usr/sbin/alsactl','--file', alsa_temp, 'store'])
         if alsa_call != '':
-            subprocess.call(['/usr/sbin/alsactl','--file', alsa_call, 'restore'])
-        # 3. Answer call via ofono
+            subprocess.call(['/usr/bin/sudo','/usr/sbin/alsactl','--file', alsa_call, 'restore'])
             VoiceCall.Answer()
         else:
             print("We are unable to setup this device's sound card for a call")
@@ -92,12 +87,9 @@ def incoming_call(o, a):
         VoiceCall.Hangup()
 
 def ended_call(o):
-    # Restore original sound card state
-    try:
-        subprocess.call(['/usr/sbin/alsactl','--file', alsa_temp, 'restore'])
-    except:
-        print("Could not restore sound settings. \
-                May or may not be an error. Check your settings")
+    if os.path.isfile(alsa_temp):
+        subprocess.call(['/usr/bin/sudo','/usr/sbin/alsactl','--file', alsa_temp, 'restore'])
+        subprocess.call(['/usr/bin/sudo','/bin/rm',alsa_temp])
 
 def setup_internet(s, v):
     global net_params

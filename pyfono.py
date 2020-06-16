@@ -1,13 +1,11 @@
 #!/usr/bin/env python2
 
 from __future__ import print_function
-from pydbus import SystemBus, SessionBus
-from gi.repository import GLib
+import dbus
+import hildon
+import dbus.mainloop.glib
+import gobject
 import subprocess
-#import hildon
-
-global net_status
-global net_params
 
 new_sms_sound = '/usr/share/sounds/ui-new_email.wav'
 incoming_call_sound = '/usr/share/sounds/ui-wake_up_tune.wav'
@@ -16,49 +14,47 @@ net_params = {}
 
 def get_modem():
     # We don't expect to have more than one modem
-    return sysbus.get('org.ofono','/').GetModems()[0][0]
+    dbus_obj = system.get_object('org.ofono','/')
+    Manager = dbus.Interface(dbus_obj, 'org.ofono.Manager')
+    return Manager.GetModems()[0][0]
 
 def incoming_sms(s, a):
     # s is a str that contains the message text
     # a is a dict that contains time & sender
     #
-    notice.Notify('', 0, 'general_sms', a['Sender'], s, [], {}, 0)
-    subprocess.call(['/usr/bin/aplay', new_sms_sound])
-    print(a['Sender'], ":", s)
-
+    notifications_interface.Notify('', 0, 'general_sms', a.get('Sender'), s, [], {}, 0)
+    hildon.hildon_play_system_sound(new_sms_sound)
+    print(a.get('Sender'), ":", s)
 
 def incoming_flash_msg(s, a):
     # s is a str that contains the message text
     # a is a dict that contains time & sender
     #
     # NOTE: I haven't tested flash messages!
-    # using aplay since hildon module, which provides
-    # hildon_play_system_sound, clashes with gi.repository
-    notice.SystemNoteDialog(s, 0, '')
-    subprocess.call(['/usr/bin/aplay', new_sms_sound])
+    notifications_interface.SystemNoteDialog(s, 0, '')
+    hildon.hildon_play_system_sound(new_sms_sound)
+    print(a.get('Sender'), ":", s)
 
 def ussd_note(s):
-    notice.SystemNoteDialog(s, 0, '')
+    notifications_interface.SystemNoteDialog(s, 0, '')
+    print(s)
 
 def incoming_call(o, a):
     # o is the ofono path for the call
     # a contains the call details
     #
-    notice.Notify('', 0, 'general_call', 'Incoming Call', \
+    notifications_interface.Notify('', 0, 'general_call', 'Incoming Call', \
             a['LineIdentification'], [], {}, 0)
-    subprocess.call(
-            ['/usr/bin/aplay', incoming_call_sound]\
-            )
-    print("Call from ", a['LineIdentification'])
+    hildon.hildon_play_system_sound(incoming_call_sound)
+    print("Call from ", a.get('LineIdentification'))
 
 def ended_call(o):
     pass
 
 def setup_internet(s, v):
-    global net_status
     global net_params
 
-    if (type(v) is dict) and (len(v) > 0):
+    if type(v) is dbus.Dictionary and (v.get("Interface") is not None):
         net_params = v
         
         ipaddr = net_params.get('Address')
@@ -94,36 +90,41 @@ def setup_internet(s, v):
     elif v == False:
         print("Internet brought down")
         try:
-            ret = subprocess.call(["/usr/bin/sudo","/bin/ip","address","del", str(net_params.get("Address"))+"/"+str(net_params.get("Netmask")), "dev", str(net_params.get("Interface"))])
+            subprocess.call(["/usr/bin/sudo","/bin/ip","address","del", str(net_params.get("Address"))+"/"+str(net_params.get("Netmask")), "dev", str(net_params.get("Interface"))])
         except:
             print("Could not manually flush old ip")
 
-sysbus = SystemBus()
-sessbus = SessionBus()
-
-notice = sessbus.get('org.freedesktop.Notifications','/org/freedesktop/Notifications')
-
 if __name__ == "__main__":
-    modem = get_modem()
-    ofonoModem = sysbus.get('org.ofono', modem)
+    loop = dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+    
+    system = dbus.SystemBus(mainloop=loop)
+    session = dbus.SessionBus()
+
+    notifications = session.get_object('org.freedesktop.Notifications','/org/freedesktop/Notifications')
+    notifications_interface = dbus.Interface(notifications, dbus_interface='org.freedesktop.Notifications')
+    
+    Modem = get_modem()
+    Modem_Proxy = system.get_object('org.ofono', Modem)
 
     # Handle Incoming SMS & Flash/Instant Messages
-    ofonoModem.IncomingMessage.connect(incoming_sms)
-    ofonoModem.ImmediateMessage.connect(incoming_flash_msg)
+    system.add_signal_receiver(incoming_sms, signal_name="IncomingMessage", dbus_interface="org.ofono.MessageManager")
+    system.add_signal_receiver(incoming_flash_msg, signal_name="ImmediateMessage", dbus_interface="org.ofono.MessageManager")
 
     # Handle Phone Calls
-    ofonoModem.CallAdded.connect(incoming_call)
-    ofonoModem.CallRemoved.connect(ended_call)
+    system.add_signal_receiver(incoming_call, signal_name="CallAdded", dbus_interface="org.ofono.VoiceCallManager")
+    system.add_signal_receiver(ended_call, signal_name="CallRemoved", dbus_interface="org.ofono.VoiceCallManager")
 
     # Handle USSD Notifications
-    # ofonoModem.NotificationReceived(ussd_note)
+    # Modem.NotificationReceived(ussd_note)
 
-    # Set Internet Settings; assume 1 context 
-    if len(ofonoModem.GetContexts()[0][0]) > 0:
-        internet_ctx = ofonoModem.GetContexts()[0][0]
-        ofono_ctx = sysbus.get('org.ofono', internet_ctx)
-        ofono_ctx.PropertyChanged.connect(setup_internet)
+    # Set Internet Settings; assume 1 context
+    try:
+        ConnectionManager = dbus.Interface(system.get_object('org.ofono', Modem), 'org.ofono.ConnectionManager')
+        if len(ConnectionManager.GetContexts()[0][0]) > 0:
+            internet_ctx = ConnectionManager.GetContexts()[0][0]
+            ofono_ctx = system.get_object('org.ofono', internet_ctx)
+            system.add_signal_receiver(setup_internet, signal_name="PropertyChanged", dbus_interface="org.ofono.ConnectionContext")
+    except:
+        print("No contexts defined")
 
-    loop = GLib.MainLoop()
-    loop.run()
-
+    gobject.MainLoop().run()

@@ -61,30 +61,31 @@ def ussd_note(s):
     notifications_interface.SystemNoteDialog(s, 0, '')
     print(s)
 
-def incoming_call(o, a):
+def phone_call(o, a):
     # o is the ofono path for the call
     # a contains the call details
-    #
-    #notifications_interface.Notify('', 0, 'general_call', 'Incoming Call', \
-    #        a['LineIdentification'], [], {}, 0)
     VoiceCall = dbus.Interface(system.get_object('org.ofono', o), 'org.ofono.VoiceCall')
-    hildon.hildon_play_system_sound(incoming_call_sound)
-    user_choice = call_note(str(a.get('LineIdentification')))
-    if user_choice == 1:
-        VoiceCall.Hangup()
-        # 2. Open SMS application
-    elif user_choice == 2:
+    if str(a.get('State')) == "incoming":
+        hildon.hildon_play_system_sound(incoming_call_sound)
+        user_choice = call_note(str(a.get('LineIdentification')))
+        if user_choice == 1:
+            VoiceCall.Hangup()
+            # 2. Open SMS application
+        elif user_choice == 2:
+            pass
+            # 1.Silence the ringtone
+        elif user_choice == -5:
+            subprocess.call(['/usr/bin/sudo','/usr/sbin/alsactl','--file', alsa_temp, 'store'])
+            if alsa_call != '':
+                subprocess.call(['/usr/bin/sudo','/usr/sbin/alsactl','--file', alsa_call, 'restore'])
+                VoiceCall.Answer()
+            else:
+                print("We are unable to setup this device's sound card. Call answered at own risk")
+                VoiceCall.Answer()
+        elif user_choice == -6:
+            VoiceCall.Hangup()
+    else:
         pass
-        # 1.Silence the ringtone
-    elif user_choice == -5:
-        subprocess.call(['/usr/bin/sudo','/usr/sbin/alsactl','--file', alsa_temp, 'store'])
-        if alsa_call != '':
-            subprocess.call(['/usr/bin/sudo','/usr/sbin/alsactl','--file', alsa_call, 'restore'])
-            VoiceCall.Answer()
-        else:
-            print("We are unable to setup this device's sound card for a call")
-    elif user_choice == -6:
-        VoiceCall.Hangup()
 
 def ended_call(o):
     if os.path.isfile(alsa_temp):
@@ -151,7 +152,7 @@ if __name__ == "__main__":
     system.add_signal_receiver(incoming_flash_msg, signal_name="ImmediateMessage", dbus_interface="org.ofono.MessageManager")
 
     # Handle Phone Calls
-    system.add_signal_receiver(incoming_call, signal_name="CallAdded", dbus_interface="org.ofono.VoiceCallManager")
+    system.add_signal_receiver(phone_call, signal_name="CallAdded", dbus_interface="org.ofono.VoiceCallManager")
     system.add_signal_receiver(ended_call, signal_name="CallRemoved", dbus_interface="org.ofono.VoiceCallManager")
 
     # Handle USSD Notifications

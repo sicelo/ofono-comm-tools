@@ -130,10 +130,8 @@ def setup_internet(s, v):
 
     elif v == False:
         print("Internet brought down")
-        try:
-            subprocess.call(["/usr/bin/sudo","/bin/ip","address","del", str(net_params.get("Address"))+"/"+str(net_params.get("Netmask")), "dev", str(net_params.get("Interface"))])
-        except:
-            print("Could not manually flush old ip")
+        if (subprocess.call(["/usr/bin/sudo","/bin/ip","address","flush", "dev", str(net_params.get("Interface"))], stdout=devnull, stderr=devnull)) != 0:
+            print("Could not flush old IP.\nThis is likely not an error, but confirm if necessary")
 
 if __name__ == "__main__":
     loop = dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)

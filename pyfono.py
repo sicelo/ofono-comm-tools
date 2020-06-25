@@ -116,9 +116,7 @@ def setup_internet(s, v):
             if len(gw) == 0:
                 subprocess.call(["/usr/bin/sudo","/bin/ip","route","add","default","dev",str(iface)])
             else:
-                # The gateway doesn't seem to work; using iface
-                subprocess.call(["/usr/bin/sudo","/bin/ip","route","add","default","dev",str(iface)])
-                # subprocess.call(["/usr/bin/sudo","/bin/ip","route","add","default","via",str(gw),"dev",str(iface)])
+                subprocess.call(["/usr/bin/sudo","/bin/ip","route","add","default","via",str(gw),"dev",str(iface)])
             with open("/home/user/.dns", "w") as f:
                 for ns in range(len(dns)):
                     f.write("nameserver " + dns[ns] + "\n")

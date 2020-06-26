@@ -128,8 +128,7 @@ def setup_internet(s, v):
 
     elif v == False:
         print("Internet brought down")
-        if (subprocess.call(["/usr/bin/sudo","/bin/ip","address","flush", "dev", str(net_params.get("Interface"))], stdout=devnull, stderr=devnull)) != 0:
-            print("Could not flush old IP.\nThis is likely not an error, but confirm if necessary")
+        subprocess.call(["/usr/bin/sudo","/bin/ip","address","flush", "dev", str(net_params.get("Interface"))], stdout=devnull, stderr=devnull)
 
 if __name__ == "__main__":
     loop = dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
